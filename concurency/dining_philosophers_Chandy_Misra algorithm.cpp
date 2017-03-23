@@ -1,5 +1,3 @@
-#include "stdafx.h"
-#include <array>
 #include <mutex>
 #include <thread>
 #include <atomic>
@@ -9,9 +7,10 @@
 #include <iomanip>
 #include <condition_variable>
 #include <map>
+#include <vector>
+
 
 std::mutex g_lockprint;
-constexpr  int no_of_philosophers = 7;
 std::map<std::string, int> data;
 
 class sync_channel
@@ -20,6 +19,7 @@ class sync_channel
 	std::condition_variable cv;
 
 public:
+
 	void wait()
 	{
 		std::unique_lock<std::mutex> lock(mutex);
@@ -33,11 +33,7 @@ public:
 	}
 };
 
-struct table_setup
-{
-	std::atomic<bool> done{ false };
-	sync_channel      channel;
-};
+
 
 class fork
 {
@@ -48,8 +44,11 @@ class fork
 	sync_channel   channel;
 
 public:
-	fork(int const forkId, int const ownerId) :
-		id(forkId), owner(ownerId), dirty(true)
+
+	fork(int const forkId, int const ownerId) 
+		: id(forkId)
+		, owner(ownerId)
+		, dirty(true)
 	{}
 
 	void request(int const ownerId)
@@ -79,18 +78,45 @@ public:
 	std::mutex& getmutex() { return mutex; }
 };
 
+struct table_setup
+{
+	std::atomic<bool> done{ false };
+	sync_channel      channel;
+	std::vector<std::unique_ptr<fork>> forks;
+
+
+	table_setup(int iforks)
+	{
+		for (int i = 0; i < iforks; ++i)
+		{
+			forks.emplace_back(std::move(new fork(i, i)));
+		}
+	}
+
+};
+
 struct philosopher
 {
 private:
 	int               id;
 	std::string const name;
 	table_setup&      setup;
-	fork&             left_fork;
-	fork&             right_fork;
+	int             left_fork_id;
+	int             right_fork_id;
 	std::thread       lifethread;
 public:
-	philosopher(int const id, std::string const & n, table_setup & s, fork & l, fork & r) :
-		id(id), name(n), setup(s), left_fork(l), right_fork(r), lifethread(&philosopher::dine, this)
+	philosopher(int const id, std::string const & n, table_setup & s, int lf_id, int rf_id) :
+		id(id), name(n), setup(s), left_fork_id(lf_id), right_fork_id(rf_id), lifethread(&philosopher::dine, this)
+	{
+	}
+
+	philosopher(philosopher &&ph)
+		:id(std::move(ph.id))
+		, name(std::move(ph.name))
+		, setup(std::move(ph.setup))
+		, left_fork_id(std::move(ph.left_fork_id))
+		, right_fork_id(std::move(ph.right_fork_id))
+		, lifethread(std::move(ph.lifethread))
 	{
 	}
 
@@ -123,19 +149,19 @@ public:
 
 	void eat()
 	{
-		left_fork.request(id);
-		right_fork.request(id);
+		setup.forks[left_fork_id]->request(id);
+		setup.forks[right_fork_id]->request(id);
 
-		std::lock(left_fork.getmutex(), right_fork.getmutex());
+		std::lock(setup.forks[left_fork_id]->getmutex(), setup.forks[right_fork_id]->getmutex());
 
-		std::lock_guard<std::mutex> left_lock(left_fork.getmutex(), std::adopt_lock);
-		std::lock_guard<std::mutex> right_lock(right_fork.getmutex(), std::adopt_lock);
+		std::lock_guard<std::mutex> left_lock(setup.forks[left_fork_id]->getmutex(), std::adopt_lock);
+		std::lock_guard<std::mutex> right_lock(setup.forks[right_fork_id]->getmutex(), std::adopt_lock);
 
 		print(name + " started eating.");
 		//print(" finished eating.");
 
-		left_fork.done_using();
-		right_fork.done_using();
+		setup.forks[left_fork_id]->done_using();
+		setup.forks[right_fork_id]->done_using();
 	}
 
 	void think()
@@ -146,35 +172,25 @@ public:
 
 class table
 {
-	table_setup    setup;
+	const static int no_of_philosophers = 7;
 
-	std::array<fork, no_of_philosophers> forks
-	{
-		{
-			{ 1, 1 },
-			{ 2, 2 },
-			{ 3, 3 },
-			{ 4, 4 },
-			{ 5, 5 },
-			{ 6, 6 },
-			{ 7, 1 },
-		}
-	};
-
-	std::array<philosopher, no_of_philosophers> philosophers
-	{
-		{
-			{ 1, "Aristotle", setup, forks[0], forks[1] },
-			{ 2, "Platon",    setup, forks[1], forks[2] },
-			{ 3, "Descartes", setup, forks[2], forks[3] },
-			{ 4, "Kant",      setup, forks[3], forks[4] },
-			{ 5, "Nietzsche", setup, forks[4], forks[5] },
-			{ 6, "Hume",      setup, forks[5], forks[6] },
-			{ 7, "Russell",   setup, forks[6], forks[0] },
-		}
-	};
-
+	table_setup setup{ no_of_philosophers };
+	std::vector<std::unique_ptr<philosopher>> p;
+	
 public:
+
+	table()
+	{
+		p.emplace_back(std::move(new philosopher(1, "Aristotle", setup, 0, 1 )));
+		p.emplace_back(std::move(new philosopher(2, "Platon",	 setup, 1, 2)));
+		p.emplace_back(std::move(new philosopher(3, "Descartes", setup, 2, 3)));
+		p.emplace_back(std::move(new philosopher(4, "Kant",      setup, 3, 4)));
+		p.emplace_back(std::move(new philosopher(5, "Nietzsche", setup, 4, 5)));
+		p.emplace_back(std::move(new philosopher(6, "Hume",      setup, 5, 6)));
+		p.emplace_back(std::move(new philosopher(7, "Russell",   setup, 6, 0)));
+
+	}
+
 	void start()
 	{
 		setup.channel.notifyall();
