@@ -40,11 +40,11 @@ constexpr TExpected narrowCast(TGiven given)
 	static_assert(std::is_integral<TExpected>::value, "Only integer types are supported");
 	static_assert(std::is_integral<TGiven>::value, "Only integer types are supported");
 
-	return (GetMinMaxGiven<TExpected, TGiven>().minValue() >= given
+	return static_cast<TExpected>(GetMinMaxGiven<TExpected, TGiven>().minValue() >= given
 			? GetMinMaxGiven<TExpected, TGiven>().minValue()
 			: (GetMinMaxGiven<TExpected, TGiven>().maxValue() <= given
 				? GetMinMaxGiven<TExpected, TGiven>().maxValue()
-				: given));;
+				: given));
 }
 
 #define NARROW_CAST_TEST(x, y) static_assert(x == y, "Template narrowCast const expretion is broken for: " #x )
