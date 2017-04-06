@@ -14,25 +14,23 @@ private:
 	class bucket_type
 	{
 	private:
-		using bucket_value = std::pair<Key, Value> ;
+		using bucket_value = std::pair<Key, Value>;
 		using bucket_data = std::list<bucket_value>;
 
 		typedef typename bucket_data::iterator bucket_iterator;
-		
 
+		bucket_data data;
+		std::shared_mutex mutex;
 		bucket_iterator find_entry_for(const Key &key)
 		{
-			return std::find_if(data.begin(), data.end(), 
+			return std::find_if(data.begin(), data.end(),
 				[&](const auto &item)
-				{
-					return item.first == key; 
-				});
+			{
+				return item.first == key;
+			});
 		}
 
 	public:
-		bucket_data data;
-		std::shared_mutex mutex;
-
 		Value value_for(const Key &key)
 		{
 			std::shared_lock<std::shared_mutex> lock(mutex);
@@ -63,6 +61,15 @@ private:
 			if (found_entry != data.end())
 			{
 				data.erase(found_entry);
+			}
+		}
+
+		void get_map(std::map<Key, Value> &retmap)
+		{
+			std::unique_lock<std::shared_mutex> lock(mutex);
+			for (const auto &pair : data)
+			{
+				retmap.insert(pair);
 			}
 		}
 	};
@@ -107,20 +114,11 @@ public:
 
 	std::map<Key, Value> get_map() const
 	{
-		std::vector<std::unique_lock<std::shared_mutex> > locks;
+		std::map<Key, Value> res;
 
 		for (auto &bucket : buckets)
 		{
-			locks.emplace_back(std::unique_lock<std::shared_mutex>(bucket->mutex));
-		}
-		std::map<Key, Value> res;
-
-		for (const auto &bucket : buckets)
-		{
-			for (const auto &pair : bucket->data)
-			{
-				res.insert(pair);
-			}
+			bucket->get_map(res);
 		}
 
 		return res;
