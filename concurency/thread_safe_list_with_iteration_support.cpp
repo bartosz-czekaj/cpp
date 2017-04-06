@@ -8,89 +8,6 @@
 #include <map>
 #include <sstream>
 
-class Thread
-{
-private:
-
-	std::exception_ptr exceptionPtr;
-	std::thread thread;
-
-public:
-
-	using Id = std::thread::id;
-
-	using NativeHandleType = std::thread::native_handle_type;
-
-	Thread() noexcept = default;
-	Thread(Thread &&t) noexcept :
-	exceptionPtr(std::move(t.exceptionPtr)),
-		thread(std::move(t.thread))
-	{
-	}
-
-	Thread &operator =(Thread &&t) noexcept
-	{
-		exceptionPtr = std::move(t.exceptionPtr);
-		thread = std::move(t.thread);
-		return *this;
-	}
-
-	template<typename Callable, typename... Args>
-	Thread(Callable &&f, Args &&... args) :
-		exceptionPtr(nullptr),
-		thread([&](typename std::decay<Callable>::type &&f, typename std::decay<Args>::type &&... args)
-	{
-		try
-		{
-			std::bind(f, args...)();
-		}
-		catch (...)
-		{
-			exceptionPtr = std::current_exception();
-		}
-
-	}, std::forward<Callable>(f), std::forward<Args>(args)...)
-	{
-	}
-
-	bool joinable() const noexcept
-	{
-		return thread.joinable();
-	}
-
-	void join()
-	{
-		thread.join();
-
-		if (exceptionPtr != nullptr)
-		{
-			std::rethrow_exception(exceptionPtr);
-		}
-	}
-
-	void detach()
-	{
-		thread.detach();
-	}
-
-	Id getId() const noexcept
-	{
-		return thread.get_id();
-	}
-
-	NativeHandleType nativeHandle()
-	{
-		return thread.native_handle();
-	}
-
-	static uint32_t hardwareConcurrency() noexcept
-	{
-		return std::thread::hardware_concurrency();
-	}
-
-
-};
-
 template<typename T>
 class threadsafe_list
 {
@@ -108,6 +25,19 @@ class threadsafe_list
 		{}
 	};
 	node head;
+
+	template<typename TI>
+	void push_front_impl(TI&& t, std::true_type)
+	{
+		push_front(static_cast<T>(t));
+	}
+
+	template<typename TI>
+	void push_front_impl(TI&& t, std::false_type)
+	{
+		
+	}
+
 public:
 	threadsafe_list(){}
 
@@ -119,7 +49,7 @@ public:
 	threadsafe_list(threadsafe_list const& other) = delete;
 	threadsafe_list& operator=(threadsafe_list const& other) = delete;
 	
-	void push_front(T const& value)
+	void push_front(const T &value)
 	{
 		std::unique_ptr<node> new_node(new node(value));
 		std::lock_guard<std::mutex> lk(head.m);
@@ -132,6 +62,7 @@ public:
 	{
 		node* current = &head;
 		std::unique_lock<std::mutex> lk(head.m);
+
 		while (node* const next = current->next.get())
 		{
 			std::unique_lock<std::mutex> next_lk(next->m);
@@ -184,80 +115,74 @@ public:
 		}
 	}
 
-	std::thread push_front_multi(std::vector<T> &list)
+	template<typename ...Type>
+	void push_front_multi_variadic(const Type& ...t)
 	{
-		return std::thread([&] ()
-		{ 
-			for (const auto &elem : list)
-			{
-				push_front(elem);
-			}
-		});
+		(void)std::initializer_list<int>{(push_front_impl(t, std::integral_constant<bool, (std::is_same<Type, T>::value || std::is_convertible<Type, T>::value)>()), 0)...};
 	}
 
-	template<typename ...T>
-	std::thread push_front_multi_variadic(const T& ...t)
+	template<typename ...Type>
+	std::thread push_front_multi_variadic_th(const Type& ...t)
 	{
-		const auto &variadic_generic_lambda = [&](auto&&... param) 
-		{
-			std::stringstream ss;
-
-			(void)std::initializer_list<int>{(ss.str(""), ss << t, push_front(ss.str()), 0)...};
-
-		};
-		
-			;		
-		//Thread th(variadic_generic_lambda, t...);
-		//th.
-		//
 		return std::thread([&]()
 		{
 			try
 			{
-				std::stringstream ss;
-
-				(void)std::initializer_list<int>{(ss.str(""), ss << t, push_front(ss.str()), 0)...};
-				//std::bind(variadic_generic_lambda, t...)();
+				(void)std::initializer_list<int>{(push_front_impl(t, std::integral_constant<bool, (std::is_same<Type, T>::value || std::is_convertible<Type, T>::value)>()), 0)...};
 			}
 			catch (...)
 			{
 
 			}
+
+			const auto &fun = [](const auto &arg)
+			{
+				std::thread::id this_id = std::this_thread::get_id();
+				std::stringstream ss;;
+				ss.str("");
+				ss << this_id << ": " << arg << std::endl;
+
+				std::cout << ss.str();
+			};
+
+			for_each(fun);
+
 		});
 	}
 };
 
+template<typename T>
+void run(threadsafe_list<T> &data)
+{
+	data.push_front_multi_variadic("1s", "2s", "3s", 11, 22, 33, 44, 55, "4s", "5s");
+	const auto &fun = [](const auto &arg)
+	{
+		std::thread::id this_id = std::this_thread::get_id();
+		std::stringstream ss;;
+		ss.str("");
+		ss << this_id << ": " << arg << std::endl;
+		
+		std::cout <<ss.str();
+	};
 
-
-
-
+	data.for_each(fun);
+}
 
 int main()
 {
-	
-	threadsafe_list<std::string> tsl;
+	threadsafe_list<std::string> tsl_str;
+	threadsafe_list<int> tsl_int;
 
-	std::vector<std::string> vec{"a", "b", "c", "d", "e"};
+	std::thread t1 = tsl_str.push_front_multi_variadic_th("aaaaa", "bbbbbbbbb", "cccc", 1, 2, 3, "ddd", "fff");
+	std::thread t2 = tsl_int.push_front_multi_variadic_th("aaaaa", "bbbbbbbbb", "cccc", 1, 2, 3, "ddd", "fff");
 
-	//std::thread t1 = tsl.push_front_multi(std::ref(vec));
-	//std::thread t2 = tsl.push_front_multi(std::ref(vec));
-	//std::thread t3 = tsl.push_front_multi(std::ref(vec));
+	std::thread t3(run<std::string>, std::ref(tsl_str));
+	std::thread t4(run<int>, std::ref(tsl_int));
 
-	std::thread t4 = tsl.push_front_multi_variadic("aaaaa", "bbbbbbbbb", "cccc", 1, 2, 3);
-
-	//std::thread t1(&threadsafe_list<std::string>::push_front, tsl, "asa");
-
-	//t1.join();
-	//t2.join();
-	//t3.join();
+	t1.join();
+	t2.join();
+	t3.join();
 	t4.join();
-
-	const auto &fun = [](const std::string &arg)
-	{
-		std::cout << arg << std::endl;
-	};
-
-	tsl.for_each(fun);
 
 	return 0;
 }
