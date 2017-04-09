@@ -10,18 +10,8 @@ class spinlock_mutex
 public:
 	spinlock_mutex()
 	{
-		lock();
+		
 	}
-
-	spinlock_mutex(const spinlock_mutex &sl) = delete;
-	
-
-	~spinlock_mutex()
-	{
-		unlock();
-	}
-
-private:
 	void lock()
 	{
 		while (flag.test_and_set(std::memory_order_acquire));
@@ -31,6 +21,25 @@ private:
 		flag.clear(std::memory_order_release);
 	}
 };
+
+
+class spinlock_mutex_guard
+{
+private:
+	spinlock_mutex &_mutex;
+public:
+	spinlock_mutex_guard(spinlock_mutex &mutex)
+		: _mutex(mutex)
+	{
+		_mutex.lock();
+	}
+
+	~spinlock_mutex_guard()
+	{
+		_mutex.unlock();
+	}
+};
+
 
 
 struct Result
@@ -66,20 +75,20 @@ class MonitorResult
 public:
 	void PutNumber(int && file)
 	{
-		spinlock_mutex lock;
+		spinlock_mutex_guard lock(_mutex);
 		_result.data.emplace_back(file);
 	}
 
 	bool IsDirEmpty()
 	{
-		spinlock_mutex lock;
+		spinlock_mutex_guard lock(_mutex);
 		return _result.data.empty();
 	}
 
 
 	void Clear()
 	{
-		spinlock_mutex lock;
+		spinlock_mutex_guard lock(_mutex);
 		_result.data.clear();
 	}
 
@@ -90,6 +99,7 @@ public:
 
 
 private:
+	spinlock_mutex _mutex;
 	Result _result;
 };
 
