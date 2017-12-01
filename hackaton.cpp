@@ -14,6 +14,7 @@
 #include <sstream> 
 #include <iomanip> 
 #include <time.h>
+#include <unordered_set>
 
 #pragma comment(lib, "ws2_32.lib") //For winsock
 #pragma comment(lib, "iphlpapi.lib")
@@ -381,27 +382,42 @@ void PrintIpHeader(char* Buffer, workingmode mode, unsigned short sourcePort, un
 
 int GetProcName(DWORD aPid, std::wstring &procName)
 {
+	procName.clear();
+
+	std::wstring separator = L" | ";
+
 	HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
 	if (hSnapshot) 
 	{
-		PROCESSENTRY32 pe32;
+		std::unordered_set<std::wstring> pnames;
+
+		PROCESSENTRY32 pe32 = { 0 };
 		pe32.dwSize = sizeof(PROCESSENTRY32);
 		if (Process32First(hSnapshot, &pe32)) 
 		{
 			do 
 			{
-				if (pe32.th32ProcessID == aPid)
+				if (pe32.th32ProcessID == aPid || pe32.th32ParentProcessID == aPid)
 				{
-					procName = pe32.szExeFile;
+					auto inserter = pnames.emplace(pe32.szExeFile);
+					if (inserter.second)
+					{
+						if (pnames.size() > 1)
+						{
+							procName.append(separator);
+						}
+
+						procName.append(pe32.szExeFile);
+					}
+
 					//printf("pid %d %s\n", pe32.th32ProcessID, pe32.szExeFile);
-					break;
 				}
 			} while (Process32Next(hSnapshot, &pe32));
 		}
 		CloseHandle(hSnapshot);
-
-		return 0;
 	}
+
+	return 0;
 }
 
 int GetProcName_old(DWORD aPid, std::wstring &procName)
@@ -508,9 +524,20 @@ int GetProcessNameFromTCPTable(std::wstring &pName, unsigned short portID)
 	pGetExtendedTcpTable = (DWORD(WINAPI *)(PVOID, PDWORD, BOOL, ULONG, TCP_TABLE_CLASS, ULONG))
 		GetProcAddress(hLib, "GetExtendedTcpTable");
 
+	if (!pGetExtendedTcpTable)
+	{
+
+	}
+
 	dwResult = pGetExtendedTcpTable(NULL, &size, false, AF_INET, TCP_TABLE_OWNER_PID_ALL, 0);
 	pTCPInfo = (MIB_TCPTABLE_OWNER_PID*)malloc(size);
 	dwResult = pGetExtendedTcpTable(pTCPInfo, &size, false, AF_INET, TCP_TABLE_OWNER_PID_ALL, 0);
+
+	if (dwResult != NO_ERROR)
+	{
+		return -1;
+	}
+
 	for (DWORD dwLoop = 0; dwLoop < pTCPInfo->dwNumEntries; dwLoop++)
 	{
 		owner = &pTCPInfo->table[dwLoop];
