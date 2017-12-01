@@ -28,7 +28,7 @@ enum class workingmode
 };
 
 void ProcessPacket(char*, int); //This will decide how to digest
-void PrintIpHeader(char*, workingmode mode);
+void PrintIpHeader(char*, workingmode mode, unsigned short sourcePort, unsigned short destPort);
 void PrintIcmpPacket(char*, int);
 void PrintUdpPacket(char*, int);
 void PrintTcpPacket(char*, int);
@@ -288,21 +288,16 @@ void ProcessPacket(char* Buffer, int Size)
 
 std::string DataAsString(const std::chrono::system_clock::time_point& tp)
 {
-	// convert to system time:
 	char str[32];
 	time_t result = time(NULL);
-
 	std::time_t t = std::chrono::system_clock::to_time_t(tp);
-
 	ctime_s(str, sizeof str, &result);
-
-
-	std::string ts = str;// convert to calendar time
-	ts.resize(ts.size() - 1);         // skip trailing newline
+	std::string ts = str;
+	ts.resize(ts.size() - 1);
 	return ts;
 }
 
-void PrintIpHeader(char* Buffer, workingmode mode)
+void PrintIpHeader(char* Buffer, workingmode mode, unsigned short sourcePort, unsigned short destPort)
 {
 	unsigned short iphdrlen;
 
@@ -351,9 +346,9 @@ void PrintIpHeader(char* Buffer, workingmode mode)
 		unsigned short port = 0;
 
 		if (strcmp(sstr, myIP.c_str()) == 0)
-			port = tcpheader->source_port;
+			port = sourcePort;
 		else if (strcmp(dstr, myIP.c_str()) == 0)
-			port = tcpheader->dest_port;
+			port = destPort;
 
 		std::wstring pName;
 
@@ -548,7 +543,7 @@ void PrintTcpPacket(char* Buffer, int Size)
 	tcpheader = (TCP_HDR*)(Buffer + iphdrlen);
 	fprintf(logfile, "\n\n***********************TCP Packet*************************\n");
 
-	PrintIpHeader(Buffer, workingmode::TCP_MODE);
+	PrintIpHeader(Buffer, workingmode::TCP_MODE, tcpheader->source_port, tcpheader->dest_port);
 
 	
 
@@ -598,7 +593,7 @@ void PrintUdpPacket(char *Buffer, int Size)
 
 	fprintf(logfile, "\n\n***********************UDP Packet*************************\n");
 
-	PrintIpHeader(Buffer, workingmode::TCP_MODE);
+	PrintIpHeader(Buffer, workingmode::TCP_MODE, udpheader->source_port, udpheader->dest_port);
 
 	fprintf(logfile, "\nUDP Header\n");
 	fprintf(logfile, " |-Source Port : %d\n", ntohs(udpheader->source_port));
@@ -632,7 +627,7 @@ void PrintIcmpPacket(char* Buffer, int Size)
 	icmpheader = (ICMP_HDR*)(Buffer + iphdrlen);
 
 	fprintf(logfile, "\n\n***********************ICMP Packet*************************\n");
-	PrintIpHeader(Buffer, workingmode::OTHER_MODE);
+	PrintIpHeader(Buffer, workingmode::OTHER_MODE, 0, 0);
 
 	fprintf(logfile, "\n");
 
