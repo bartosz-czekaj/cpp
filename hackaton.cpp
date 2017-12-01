@@ -356,7 +356,7 @@ void PrintIpHeader(char* Buffer, workingmode mode, unsigned short sourcePort, un
 
 		if(mode == workingmode::TCP_MODE)
 			retValue = GetProcessNameFromTCPTable(pName, port);
-		else if (mode == workingmode::OTHER_MODE)
+		else if (mode == workingmode::UPD_MODE)
 			retValue = GetProcessNameFromUDPTable(pName, port);
 
 		if (retValue == 0)
@@ -415,8 +415,16 @@ int GetProcessNameFromUDPTable(std::wstring &pName, unsigned short portID)
 
 	HMODULE hLib = LoadLibrary((LPCWSTR)"iphlpapi.dll");
 
+
 	pGetExtendedUdpTable = (DWORD(WINAPI *)(PVOID, PDWORD, BOOL, ULONG, UDP_TABLE_CLASS, ULONG))
 		GetProcAddress(hLib, "GetExtendedUdpTable");
+
+
+	if (!pGetExtendedUdpTable)
+	{
+		return -1;
+	}
+
 
 	dwResult = pGetExtendedUdpTable(NULL, &size, false, AF_INET, UDP_TABLE_BASIC, 0);
 	pUDPInfo =  (MIB_UDPTABLE_OWNER_PID*)malloc(size);
@@ -593,7 +601,7 @@ void PrintUdpPacket(char *Buffer, int Size)
 
 	fprintf(logfile, "\n\n***********************UDP Packet*************************\n");
 
-	PrintIpHeader(Buffer, workingmode::TCP_MODE, udpheader->source_port, udpheader->dest_port);
+	PrintIpHeader(Buffer, workingmode::UPD_MODE, udpheader->source_port, udpheader->dest_port);
 
 	fprintf(logfile, "\nUDP Header\n");
 	fprintf(logfile, " |-Source Port : %d\n", ntohs(udpheader->source_port));
