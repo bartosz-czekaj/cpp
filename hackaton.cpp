@@ -18,6 +18,14 @@
 #pragma comment(lib, "ws2_32.lib") //For winsock
 #pragma comment(lib, "iphlpapi.lib")
 
+auto convertCharArrayToLPCWSTR = [](char* charArray)
+{
+	wchar_t* wString = new wchar_t[4096];
+	MultiByteToWideChar(CP_ACP, 0, charArray, -1, wString, 4096);
+	return wString;
+};
+
+
 #define SIO_RCVALL  _WSAIOW(IOC_VENDOR,1)
 
 enum class workingmode
@@ -373,6 +381,31 @@ void PrintIpHeader(char* Buffer, workingmode mode, unsigned short sourcePort, un
 
 int GetProcName(DWORD aPid, std::wstring &procName)
 {
+	HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	if (hSnapshot) 
+	{
+		PROCESSENTRY32 pe32;
+		pe32.dwSize = sizeof(PROCESSENTRY32);
+		if (Process32First(hSnapshot, &pe32)) 
+		{
+			do 
+			{
+				if (pe32.th32ProcessID == aPid)
+				{
+					procName = pe32.szExeFile;
+					//printf("pid %d %s\n", pe32.th32ProcessID, pe32.szExeFile);
+					break;
+				}
+			} while (Process32Next(hSnapshot, &pe32));
+		}
+		CloseHandle(hSnapshot);
+
+		return 0;
+	}
+}
+
+int GetProcName_old(DWORD aPid, std::wstring &procName)
+{
 	PROCESSENTRY32 processInfo;
 	processInfo.dwSize = sizeof(processInfo);
 	HANDLE processesSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, NULL);
@@ -413,7 +446,7 @@ int GetProcessNameFromUDPTable(std::wstring &pName, unsigned short portID)
 	DWORD size;
 	DWORD dwResult;
 
-	HMODULE hLib = LoadLibrary((LPCWSTR)"iphlpapi.dll");
+	HMODULE hLib = LoadLibrary(convertCharArrayToLPCWSTR("iphlpapi.dll"));
 
 
 	pGetExtendedUdpTable = (DWORD(WINAPI *)(PVOID, PDWORD, BOOL, ULONG, UDP_TABLE_CLASS, ULONG))
@@ -430,15 +463,20 @@ int GetProcessNameFromUDPTable(std::wstring &pName, unsigned short portID)
 	pUDPInfo =  (MIB_UDPTABLE_OWNER_PID*)malloc(size);
 	dwResult = pGetExtendedUdpTable(pUDPInfo, &size, false, AF_INET, UDP_TABLE_BASIC, 0);
 
+	if (dwResult != NO_ERROR)
+	{
+		return -1;
+	}
+
 	for (DWORD dwLoop = 0; dwLoop < pUDPInfo->dwNumEntries; dwLoop++)
 	{
 		owner = &pUDPInfo->table[dwLoop];
 		if (!owner)
 			continue;
 
-		if (owner->dwLocalPort == portID || owner->dwLocalPort == portID)
+		if (owner->dwLocalPort == portID)
 		{
-			GetProcName(owner->dwOwningPid, pName);
+ 			GetProcName(owner->dwOwningPid, pName);
 			break;
 		}
 	}
@@ -464,12 +502,6 @@ int GetProcessNameFromTCPTable(std::wstring &pName, unsigned short portID)
 	DWORD size;
 	DWORD dwResult;
 
-	auto convertCharArrayToLPCWSTR = [](char* charArray)
-	{
-		wchar_t* wString = new wchar_t[4096];
-		MultiByteToWideChar(CP_ACP, 0, charArray, -1, wString, 4096);
-		return wString;
-	};
 
 	HMODULE hLib = LoadLibrary(convertCharArrayToLPCWSTR("iphlpapi.dll"));
 
