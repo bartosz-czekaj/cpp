@@ -1,4 +1,4 @@
-# Because the work is not enough
+# Examples
 
 Hi, here are projects and files with various samples related to CPP. 
 I based on:
