@@ -20,3 +20,14 @@ int updateBit(int  num, int i, bool set1)
     auto mask = ~(1 << i);
     return (num & mask) | (value << i);
 }
+
+int isBigEndian(void)
+{
+    union 
+    {
+        uint32_t i;
+        char c[4];
+    } bint = {0x01020304};
+
+    return bint.c[0] == 1; 
+}
